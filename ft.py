@@ -4,11 +4,19 @@ import io
 import xml.etree.ElementTree as ET
 import time
 
+# Sayfa Ayarları
+st.set_page_config(
+    page_title="E-Fatura Alış Kalemleri & KDV Analiz Portalı",
+    page_icon="🧾",
+    layout="wide"
+)
+
+# Başlık ve Karşılama
+st.title("🧾 E-Fatura Alış / Satış Detay ve KDV Analiz Portalı")
+st.markdown("E-Fatura XML dosyalarınızı yükleyin; sistem satıcı, alıcı, VKN, mal/hizmet kalemleri, KDV ve toplam tutarları otomatik ayrıştırıp size Excel versin.")
+st.markdown("---")
+
 def efatura_mal_iceriklerini_oku(uploaded_files):
-    """
-    UBL-TR E-Fatura XML dosyalarından satıcı, alıcı, VKN, mal/hizmet satırları (InvoiceLine) 
-    ve tutar detaylarını eksiksiz ayrıştırır.
-    """
     tum_satirlar = []
     
     for uf in uploaded_files:
@@ -23,7 +31,7 @@ def efatura_mal_iceriklerini_oku(uploaded_files):
             alici_unvan = "Bilinmiyor"
             alici_vkn = ""
             
-            # 1. Genel Fatura Başlık ve Taraf Bilgileri
+            # Genel Fatura Bilgileri
             for elem in root.iter():
                 tag = elem.tag.split('}')[-1].lower()
                 text = elem.text.strip() if elem.text else ""
@@ -33,10 +41,10 @@ def efatura_mal_iceriklerini_oku(uploaded_files):
                 elif tag in ["issuedate", "tarih"] and not fatura_tarihi and text:
                     fatura_tarihi = text
 
-            # Satıcı ve Alıcı Ayrımı (UBL-TR Yapısı)
+            # Satıcı ve Alıcı Ayrımı
             for parent in root.iter():
                 ptag = parent.tag.split('}')[-1].lower()
-                if "accountingsupplierparty" in ptag: # Satıcı
+                if "accountingsupplierparty" in ptag:
                     for child in parent.iter():
                         ctag = child.tag.split('}')[-1].lower()
                         cval = child.text.strip() if child.text else ""
@@ -44,7 +52,7 @@ def efatura_mal_iceriklerini_oku(uploaded_files):
                             satici_unvan = cval
                         elif ctag in ["companyid", "vkn", "tckn"] and not satici_vkn and cval:
                             satici_vkn = cval
-                elif "accountingcustomerparty" in ptag: # Alıcı
+                elif "accountingcustomerparty" in ptag:
                     for child in parent.iter():
                         ctag = child.tag.split('}')[-1].lower()
                         cval = child.text.strip() if child.text else ""
@@ -53,7 +61,6 @@ def efatura_mal_iceriklerini_oku(uploaded_files):
                         elif ctag in ["companyid", "vkn", "tckn"] and not alici_vkn and cval:
                             alici_vkn = cval
 
-            # Eğer genel etiketlerde unvan bulunamadıysa genel arama yap
             if satici_unvan == "Bilinmiyor":
                 for elem in root.iter():
                     tag = elem.tag.split('}')[-1].lower()
@@ -61,7 +68,7 @@ def efatura_mal_iceriklerini_oku(uploaded_files):
                         satici_unvan = elem.text.strip()
                         break
 
-            # 2. Fatura Mal / Hizmet Kalemleri (InvoiceLine)
+            # Mal ve Hizmet Kalemleri (InvoiceLine)
             for line in root.iter():
                 tag = line.tag.split('}')[-1].lower()
                 if tag in ["invoiceline", "line"]:
@@ -118,49 +125,43 @@ def efatura_mal_iceriklerini_oku(uploaded_files):
             
     return pd.DataFrame(tum_satirlar)
 
-def render_ft_module():
-    """
-    Streamlit arayüzünde mal/hizmet kalemleri sekmesini ve indirme butonunu çizen ana fonksiyon.
-    """
-    st.subheader("📦 E-Fatura Mal / Hizmet & Taraf Detay Analizi (`ft.py`)")
-    st.markdown("E-Fatura XML dosyalarınızı yükleyerek satıcı, alıcı, VKN ve ürün/hizmet kalemlerini tek tabloda listeleyebilir ve Excel olarak indirebilirsiniz.")
-    
-    efatura_kalem_files = st.file_uploader(
-        "E-Fatura XML Dosyalarını Seçin", 
-        type=["xml"], 
-        accept_multiple_files=True,
-        key="ft_efatura_uploader"
-    )
-    
-    if st.button("🚀 Faturalardaki Detayları ve Kalemleri Ayrıştır", type="primary", use_container_width=True):
-        if efatura_kalem_files:
-            with st.spinner("Faturalar taranıyor, satıcı/alıcı ve kalemler çıkartılıyor..."):
-                df_kalemler = efatura_mal_iceriklerini_oku(efatura_kalem_files)
-                st.session_state["ft_efatura_kalemler_df"] = df_kalemler
-                time.sleep(0.3)
-            st.success("Tüm fatura detayları ve kalemleri başarıyla listelendi kanka!")
-            st.rerun()
-        else:
-            st.warning("Lütfen en az bir E-Fatura XML dosyası seçin kanka.")
+# --- ARAYÜZ KISMI ---
+uploaded_xmls = st.file_uploader(
+    "Alış Faturası XML Dosyalarını Seçin", 
+    type=["xml"], 
+    accept_multiple_files=True,
+    key="main_efatura_uploader"
+)
 
-    if "ft_efatura_kalemler_df" in st.session_state and not st.session_state["ft_efatura_kalemler_df"].empty:
-        st.markdown("---")
-        st.markdown("### 📋 Fatura Kalemleri ve Taraf Listesi")
+if st.button("🚀 Faturaları İşle ve Tabloyu Oluştur", type="primary", use_container_width=True):
+    if uploaded_xmls:
+        with st.spinner("XML'ler taranıyor, satıcı/alıcı ve kalemler ayrıştırılıyor..."):
+            df_sonuc = efatura_mal_iceriklerini_oku(uploaded_xmls)
+            st.session_state["islenen_fatura_df"] = df_sonuc
+            time.sleep(0.3)
+        st.success("İşlem tamam kanka!")
+        st.rerun()
+    else:
+        st.warning("Lütfen önce XML dosyası seçin kanka.")
+
+if "islenen_fatura_df" in st.session_state and not st.session_state["islenen_fatura_df"].empty:
+    st.markdown("---")
+    st.subheader("📊 Ayrıştırılan Fatura Kalemleri")
+    
+    df_goster = st.session_state["islenen_fatura_df"].copy()
+    for col in ["Birim Fiyat (TL)", "Matrah (TL)", "KDV Tutarı (TL)", "Toplam (TL)"]:
+        df_goster[col] = df_goster[col].apply(lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
         
-        df_gosterim = st.session_state["ft_efatura_kalemler_df"].copy()
-        for col in ["Birim Fiyat (TL)", "Matrah (TL)", "KDV Tutarı (TL)", "Toplam (TL)"]:
-            df_gosterim[col] = df_gosterim[col].apply(lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
-            
-        st.dataframe(df_gosterim, use_container_width=True, hide_index=True)
+    st.dataframe(df_goster, use_container_width=True, hide_index=True)
+    
+    output_excel = io.BytesIO()
+    with pd.ExcelWriter(output_excel, engine='xlsxwriter') as writer:
+        st.session_state["islenen_fatura_df"].to_excel(writer, sheet_name='E_Fatura_Analizi', index=False)
         
-        output_kalemler = io.BytesIO()
-        with pd.ExcelWriter(output_kalemler, engine='xlsxwriter') as writer:
-            st.session_state["ft_efatura_kalemler_df"].to_excel(writer, sheet_name='Fatura_Detay_Kalemleri', index=False)
-            
-        st.download_button(
-            label="📥 Bu Detaylı Listeyi Excel Olarak İndir (.xlsx)", 
-            data=output_kalemler.getvalue(), 
-            file_name="E_Fatura_Detayli_Mal_Hizmet_Listesi.xlsx", 
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", 
-            key="dl_ft_efatura_kalemler"
-        )
+    st.download_button(
+        label="📥 Bu Tabloyu Excel Olarak İndir (.xlsx)", 
+        data=output_excel.getvalue(), 
+        file_name="EFatura_Detayli_Analiz_Raporu.xlsx", 
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", 
+        key="dl_excel_btn"
+    )
