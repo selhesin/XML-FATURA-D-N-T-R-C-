@@ -28,16 +28,19 @@ if not st.session_state["authenticated"]:
             st.rerun()
         else:
             st.error("Hatalı şifre kanka! (Şifre: 1903)")
-    st.stop()  # Şifre girilmediyse alt kısımların yüklenmesini engeller
+    st.stop()
 
-# --- ANA UYGULAMA (Şifre Doğrulandıktan Sonra Çalışır) ---
+# --- ANA UYGULAMA ---
 st.title("🧾 E-Fatura Alış KDV Listesi Otomasyonu")
 st.markdown("Alış faturası XML dosyalarınızı yükleyin; sistem satıcı VKN, alıcı unvanı, mal içeriği, miktar ve KDV detaylarını resmi **İndirilecek KDV Listesi** formatında Excel versin.")
 st.markdown("---")
 
-# Oturum Durumu Başlatma
+# Oturum Durumları Başlatma
 if "ft_efatura_kalemler_df" not in st.session_state:
     st.session_state["ft_efatura_kalemler_df"] = pd.DataFrame()
+
+if "uploader_key" not in st.session_state:
+    st.session_state["uploader_key"] = 0  # Dosya yükleyiciyi sıfırlamak için dinamik key
 
 def efatura_mal_iceriklerini_oku(uploaded_files):
     tum_satirlar = []
@@ -53,7 +56,7 @@ def efatura_mal_iceriklerini_oku(uploaded_files):
             satici_vkn = ""
             alici_unvan = "Bilinmiyor"
             
-            # 1. Fatura No ve Tarih
+            # Fatura No ve Tarih
             for elem in root.iter():
                 tag = elem.tag.split('}')[-1].lower()
                 text = elem.text.strip() if elem.text else ""
@@ -62,7 +65,7 @@ def efatura_mal_iceriklerini_oku(uploaded_files):
                 elif tag in ["issuedate", "tarih"] and not fatura_tarihi and text:
                     fatura_tarihi = text
 
-            # Tarih formatını çevirme (YYYY-MM-DD -> DD.MM.YYYY)
+            # Tarih formatı (YYYY-MM-DD -> DD.MM.YYYY)
             try:
                 if "-" in fatura_tarihi:
                     parts = fatura_tarihi.split("-")
@@ -82,10 +85,10 @@ def efatura_mal_iceriklerini_oku(uploaded_files):
             except:
                 kdv_donemi = "2023/05"
 
-            # 2. Satıcı ve Alıcı Unvan / VKN Bilgileri
+            # Satıcı ve Alıcı Bilgileri
             for parent in root.iter():
                 ptag = parent.tag.split('}')[-1].lower()
-                if "accountingsupplierparty" in ptag: # Satıcı
+                if "accountingsupplierparty" in ptag:
                     for child in parent.iter():
                         ctag = child.tag.split('}')[-1].lower()
                         cval = child.text.strip() if child.text else ""
@@ -94,7 +97,7 @@ def efatura_mal_iceriklerini_oku(uploaded_files):
                         elif ctag in ["id", "companyid", "vkn", "tckn"] and not satici_vkn and cval:
                             if len(cval) in [10, 11] and cval.isdigit():
                                 satici_vkn = cval
-                elif "accountingcustomerparty" in ptag: # Alıcı
+                elif "accountingcustomerparty" in ptag:
                     for child in parent.iter():
                         ctag = child.tag.split('}')[-1].lower()
                         cval = child.text.strip() if child.text else ""
@@ -120,7 +123,7 @@ def efatura_mal_iceriklerini_oku(uploaded_files):
             if alici_unvan == "Bilinmiyor":
                 alici_unvan = "İNCİR PALET GIDA SANAYİ VE TİCARET LİMİTED ŞİRKETİ"
 
-            # 3. Mal / Hizmet Kalemleri (InvoiceLine)
+            # Mal / Hizmet Kalemleri
             line_count = 0
             for line in root.iter():
                 tag = line.tag.split('}')[-1].lower()
@@ -197,11 +200,12 @@ def efatura_mal_iceriklerini_oku(uploaded_files):
     return df
 
 # --- ARAYÜZ KISMI ---
+# Dinamik key kullanarak file_uploader kutusunu sıfırlayabiliyoruz
 uploaded_xmls = st.file_uploader(
-    "Alış Faturası XML Dosyalarını Seçin", 
+    "Alış Faturası XML Dosyalarını Seçin (Toplu Yükleyebilirsiniz)", 
     type=["xml"], 
     accept_multiple_files=True,
-    key="ft_efatura_uploader"
+    key=f"ft_efatura_uploader_{st.session_state['uploader_key']}"
 )
 
 col_islem, col_temizle = st.columns([3, 1])
@@ -210,11 +214,12 @@ with col_islem:
     islem_basildi = st.button("🚀 Faturaları İşle ve İndirilecek KDV Listesi Oluştur", type="primary", use_container_width=True)
 
 with col_temizle:
-    sil_basildi = st.button("🗑️ Tüm Faturaları Sil", type="secondary", use_container_width=True)
+    sil_basildi = st.button("🗑️ Tüm Dosyaları ve Tabloyu Sıfırla", type="secondary", use_container_width=True)
 
 if sil_basildi:
     st.session_state["ft_efatura_kalemler_df"] = pd.DataFrame()
-    st.success("Tüm faturalar silindi kanka!")
+    st.session_state["uploader_key"] += 1  # Key değiştirilerek file_uploader kutusu tertemiz sıfırlanır
+    st.success("Tüm yüklenen faturalar ve tablolar başarıyla sıfırlandı kanka!")
     st.rerun()
 
 if islem_basildi:
