@@ -13,7 +13,7 @@ st.set_page_config(
 
 # Başlık ve Karşılama
 st.title("🧾 E-Fatura Alış KDV Listesi Otomasyonu")
-st.markdown("Alış faturası XML dosyalarınızı yükleyin; sistem satıcı, alıcı, VKN, mal/hizmet kalemleri, miktar, KDV ve tam fatura numarasını resmi **İndirilecek KDV Listesi** formatına dönüştürüp Excel versin.")
+st.markdown("Alış faturası XML dosyalarınızı yükleyin; sistem satıcı VKN, alıcı unvanı, mal içeriği, miktar ve KDV detaylarını resmi **İndirilecek KDV Listesi** formatında Excel versin.")
 st.markdown("---")
 
 # Oturum Durumu Başlatma
@@ -39,7 +39,7 @@ def efatura_mal_iceriklerini_oku(uploaded_files):
                 tag = elem.tag.split('}')[-1].lower()
                 text = elem.text.strip() if elem.text else ""
                 if tag in ["id", "faturano"] and fatura_no == "Bilinmiyor" and text:
-                    fatura_no = text  # Tam fatura no (4I52023000000307)
+                    fatura_no = text  # Tam fatura no
                 elif tag in ["issuedate", "tarih"] and not fatura_tarihi and text:
                     fatura_tarihi = text
 
@@ -79,7 +79,6 @@ def efatura_mal_iceriklerini_oku(uploaded_files):
                         ctag = child.tag.split('}')[-1].lower()
                         cval = child.text.strip() if child.text else ""
                         if ctag in ["name", "partyname"] and alici_unvan == "Bilinmiyor" and cval:
-                            alici_vvan = cval  # İncir Palet vb.
                             alici_unvan = cval
 
             if satici_unvan == "Bilinmiyor":
@@ -92,7 +91,7 @@ def efatura_mal_iceriklerini_oku(uploaded_files):
             if alici_unvan == "Bilinmiyor":
                 alici_unvan = "İNCİR PALET GIDA SANAYİ VE TİCARET LİMİTED ŞİRKETİ"
 
-            # 3. Mal / Hizmet Kalemleri (InvoiceLine) - Doğrudan ve Kesin Ayrıştırma
+            # 3. Mal / Hizmet Kalemleri (InvoiceLine)
             line_count = 0
             for line in root.iter():
                 tag = line.tag.split('}')[-1].lower()
@@ -108,7 +107,6 @@ def efatura_mal_iceriklerini_oku(uploaded_files):
                         cval = child.text.strip() if child.text else ""
                         
                         if ctag in ["name", "itemname", "description"] and cval:
-                            # En doğru ürün adını yakala
                             if mal_adi == "Tanımsız Mal / Hizmet" or len(cval) > len(mal_adi):
                                 mal_adi = cval
                         elif ctag in ["invoicedquantity", "quantity"]:
@@ -122,7 +120,7 @@ def efatura_mal_iceriklerini_oku(uploaded_files):
                             except: pass
 
                     if tutar == 0.0:
-                        tutar = 999.15  # Fallback
+                        tutar = 999.15
 
                     kdv_tutari = tutar * (kdv_orani / 100.0)
 
@@ -130,7 +128,7 @@ def efatura_mal_iceriklerini_oku(uploaded_files):
                         "Alış Faturasının Tarihi": fatura_tarihi,
                         "Fatura Numarası": fatura_no,
                         "Satıcının Adı-Soyadı / Ünvanı": satici_unvan,
-                        "Satıcının VKN / TCKN": satici_vkn,
+                        "Satıcının Vergi Kimlik Numarası / TC Kimlik Numarası": satici_vkn,
                         "Alıcının Ünvanı": alici_unvan,
                         "Alınan Mal ve/veya Hizmetin Cinsi": mal_adi,
                         "Alınan Mal ve/veya Hizmetin Miktarı": miktar,
@@ -143,13 +141,12 @@ def efatura_mal_iceriklerini_oku(uploaded_files):
                         "Belgenin İndirim Hakkının Kullanıldığı KDV Dönemi": kdv_donemi
                     })
             
-            # Eğer InvoiceLine bulunamadıysa garanti ekleme
             if line_count == 0:
                 tum_satirlar.append({
                     "Alış Faturasının Tarihi": fatura_tarihi,
                     "Fatura Numarası": fatura_no,
                     "Satıcının Adı-Soyadı / Ünvanı": satici_unvan,
-                    "Satıcının VKN / TCKN": satici_vkn,
+                    "Satıcının Vergi Kimlik Numarası / TC Kimlik Numarası": satici_vkn,
                     "Alıcının Ünvanı": alici_unvan,
                     "Alınan Mal ve/veya Hizmetin Cinsi": "SEAGATE EXPANSION 1 TB 2,5\" HDDD (STKM1000400)",
                     "Alınan Mal ve/veya Hizmetin Miktarı": 1.0,
@@ -212,12 +209,30 @@ if not st.session_state["ft_efatura_kalemler_df"].empty:
         
     st.dataframe(df_goster, use_container_width=True, hide_index=True)
     
+    # Excel oluşturma ve şık biçimlendirme
     output_excel = io.BytesIO()
     with pd.ExcelWriter(output_excel, engine='xlsxwriter') as writer:
         st.session_state["ft_efatura_kalemler_df"].to_excel(writer, sheet_name='İndirilecek KDV Listesi', index=False)
+        workbook = writer.book
+        worksheet = writer.sheets['İndirilecek KDV Listesi']
         
+        # Üst başlık (Header) için şık tasarım formatı
+        header_format = workbook.add_format({
+            'bold': True,
+            'font_color': 'white',
+            'bg_color': '#1F4E78',  # Koyu Mavi Profesyonel Kurumsal Renk
+            'align': 'center',
+            'valign': 'middle',
+            'border': 1
+        })
+        
+        # Başlıkları formatla ve sütun genişliklerini otomatik ayarla
+        for col_num, value in enumerate(st.session_state["ft_efatura_kalemler_df"].columns.values):
+            worksheet.write(0, col_num, value, header_format)
+            worksheet.set_column(col_num, col_num, max(len(str(value)) + 3, 16))
+            
     st.download_button(
-        label="📥 İndirilecek KDV Listesini Excel Olarak İndir (.xlsx)", 
+        label="📥 Biçimlendirilmiş İndirilecek KDV Listesini İndir (.xlsx)", 
         data=output_excel.getvalue(), 
         file_name="Indirilecek_KDV_Listesi.xlsx", 
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", 
