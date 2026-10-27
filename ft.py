@@ -63,18 +63,20 @@ def efatura_mal_iceriklerini_oku(uploaded_files):
             except:
                 kdv_donemi = "2023/05"
 
-            # 2. Satıcı ve Alıcı Unvan / VKN Bilgileri
+            # 2. Satıcı ve Alıcı Unvan / VKN Bilgileri (Garantili Çekim)
             for parent in root.iter():
                 ptag = parent.tag.split('}')[-1].lower()
-                if "accountingsupplierparty" in ptag:
+                if "accountingsupplierparty" in ptag: # Satıcı
                     for child in parent.iter():
                         ctag = child.tag.split('}')[-1].lower()
                         cval = child.text.strip() if child.text else ""
                         if ctag in ["name", "partyname"] and satici_unvan == "Bilinmiyor" and cval:
                             satici_unvan = cval
-                        elif ctag in ["companyid", "vkn", "tckn"] and not satici_vkn and cval:
-                            satici_vkn = cval
-                elif "accountingcustomerparty" in ptag:
+                        # VKN tespiti (PartyIdentification altındaki ID veya vkn/companyid)
+                        elif ctag in ["id", "companyid", "vkn", "tckn"] and not satici_vkn and cval:
+                            if len(cval) in [10, 11] and cval.isdigit():
+                                satici_vkn = cval
+                elif "accountingcustomerparty" in ptag: # Alıcı
                     for child in parent.iter():
                         ctag = child.tag.split('}')[-1].lower()
                         cval = child.text.strip() if child.text else ""
@@ -88,6 +90,15 @@ def efatura_mal_iceriklerini_oku(uploaded_files):
                         satici_unvan = elem.text.strip()
                         break
                         
+            if not satici_vkn:
+                for elem in root.iter():
+                    tag = elem.tag.split('}')[-1].lower()
+                    if tag in ["id", "companyid", "vkn"] and elem.text:
+                        txt = elem.text.strip()
+                        if len(txt) == 10 and txt.isdigit():
+                            satici_vkn = txt
+                            break
+
             if alici_unvan == "Bilinmiyor":
                 alici_unvan = "İNCİR PALET GIDA SANAYİ VE TİCARET LİMİTED ŞİRKETİ"
 
@@ -178,7 +189,7 @@ uploaded_xmls = st.file_uploader(
 col_islem, col_temizle = st.columns([3, 1])
 
 with col_islem:
-    islem_basildi = st.button("🚀 Faturaları İşle ve İndirilecek KDV Listesi Oluştur", type="primary", use_container_width=True)
+    islem_basildi = st.button("🚀 Faturaları İşle và İndirilecek KDV Listesi Oluştur", type="primary", use_container_width=True)
 
 with col_temizle:
     temizle_basildi = st.button("🗑️ Faturaları Temizle / Sıfırla", type="secondary", use_container_width=True)
