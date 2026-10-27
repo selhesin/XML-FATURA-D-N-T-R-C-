@@ -13,7 +13,7 @@ st.set_page_config(
 
 # Başlık ve Karşılama
 st.title("🧾 E-Fatura Alış KDV Listesi Otomasyonu")
-st.markdown("Alış faturası XML dosyalarınızı yükleyin; sistem satıcı, VKN, mal/hizmet kalemleri, KDV ve tam fatura numarasını resmi **İndirilecek KDV Listesi** formatına dönüştürüp Excel versin.")
+st.markdown("Alış faturası XML dosyalarınızı yükleyin; sistem satıcı, alıcı, VKN, mal/hizmet kalemleri, miktar, KDV ve tam fatura numarasını resmi **İndirilecek KDV Listesi** formatına dönüştürüp Excel versin.")
 st.markdown("---")
 
 # Oturum Durumu Başlatma
@@ -32,6 +32,7 @@ def efatura_mal_iceriklerini_oku(uploaded_files):
             fatura_tarihi = ""
             satici_unvan = "Bilinmiyor"
             satici_vkn = ""
+            alici_unvan = "Bilinmiyor"
             
             # 1. Genel Fatura Bilgileri (Tam Fatura No ve Tarih)
             for elem in root.iter():
@@ -39,11 +40,11 @@ def efatura_mal_iceriklerini_oku(uploaded_files):
                 text = elem.text.strip() if elem.text else ""
                 
                 if tag in ["id", "faturano"] and fatura_no == "Bilinmiyor" and text:
-                    fatura_no = text  # Seri ayrımı olmadan direkt tam fatura no
+                    fatura_no = text  # Seri ayrımı olmadan tam fatura no
                 elif tag in ["issuedate", "tarih"] and not fatura_tarihi and text:
                     fatura_tarihi = text
 
-            # Tarih formatını YYYY-AA-GG -> GG.AA.YYYY çevirme (varsa)
+            # Tarih formatını çevirme (YYYY-MM-DD -> DD.MM.YYYY)
             try:
                 if "-" in fatura_tarihi:
                     parts = fatura_tarihi.split("-")
@@ -52,7 +53,7 @@ def efatura_mal_iceriklerini_oku(uploaded_files):
             except:
                 pass
 
-            # Dönem tespiti (Örn: 2023/05)
+            # Dönem tespiti
             kdv_donemi = ""
             try:
                 if "-" in root.find('.//{*}IssueDate').text:
@@ -61,7 +62,7 @@ def efatura_mal_iceriklerini_oku(uploaded_files):
             except:
                 kdv_donemi = "2023/05"
 
-            # 2. Satıcı Bilgileri (AccountingSupplierParty)
+            # 2. Satıcı ve Alıcı Unvan / VKN Bilgileri
             for parent in root.iter():
                 ptag = parent.tag.split('}')[-1].lower()
                 if "accountingsupplierparty" in ptag:
@@ -72,6 +73,12 @@ def efatura_mal_iceriklerini_oku(uploaded_files):
                             satici_unvan = cval
                         elif ctag in ["companyid", "vkn", "tckn"] and not satici_vkn and cval:
                             satici_vkn = cval
+                elif "accountingcustomerparty" in ptag:
+                    for child in parent.iter():
+                        ctag = child.tag.split('}')[-1].lower()
+                        cval = child.text.strip() if child.text else ""
+                        if ctag in ["name", "partyname"] and alici_unvan == "Bilinmiyor" and cval:
+                            alici_unvan = cval
 
             if satici_unvan == "Bilinmiyor":
                 for elem in root.iter():
@@ -112,6 +119,7 @@ def efatura_mal_iceriklerini_oku(uploaded_files):
                         "Fatura Numarası": fatura_no,
                         "Satıcının Adı-Soyadı / Ünvanı": satici_unvan,
                         "Satıcının VKN / TCKN": satici_vkn,
+                        "Alıcının Ünvanı": alici_unvan,
                         "Alınan Mal ve/veya Hizmetin Cinsi": mal_adi,
                         "Alınan Mal ve/veya Hizmetin Miktarı": miktar,
                         "Alınan Mal ve/veya Hizmetin KDV Hariç Tutarı": tutar,
@@ -125,7 +133,6 @@ def efatura_mal_iceriklerini_oku(uploaded_files):
         except Exception as e:
             st.error(f"Dosya okuma hatası ({uf.name}): {e}")
             
-    # Sıra No ekleyelim
     df = pd.DataFrame(tum_satirlar)
     if not df.empty:
         df.insert(0, "Sıra No", range(1, len(df) + 1))
