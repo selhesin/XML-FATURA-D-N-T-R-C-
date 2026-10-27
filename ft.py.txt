@@ -1,0 +1,121 @@
+import streamlit as st
+import pandas as pd
+import io
+import xml.etree.ElementTree as ET
+
+def efatura_mal_iceriklerini_oku(uploaded_files):
+    """
+    Streamlit üzerinden gelen UBL-TR E-Fatura XML dosyalarýndan 
+    mal/hizmet satýrlarýný (InvoiceLine) ayrýþtýrarak tek bir DataFrame toplar.
+    """
+    tum_satirlar = []
+    
+    for uf in uploaded_files:
+        try:
+            tree = ET.parse(uf)
+            root = tree.getroot()
+            
+            # Fatura No ve Tarih bilgilerini yakala
+            fatura_no, fatura_tarihi, firma_unvani = "Bilinmiyor", "", "Bilinmiyor"
+            for elem in root.iter():
+                tag = elem.tag.split('}')[-1].lower()
+                text = elem.text.strip() if elem.text else ""
+                if tag in ["id", "faturano"] and fatura_no == "Bilinmiyor" and text:
+                    fatura_no = text
+                elif tag in ["issuedate", "tarih"] and not fatura_tarihi and text:
+                    fatura_tarihi = text
+                elif tag in ["partyname", "name", "unvan"] and firma_unvani == "Bilinmiyor" and text:
+                    firma_unvani = text
+
+            # Mal ve hizmet kalemlerini (Line / InvoiceLine) tara
+            for line in root.iter():
+                tag = line.tag.split('}')[-1].lower()
+                if tag in ["invoiceline", "line"]:
+                    mal_adi = "Tanýmsýz Mal / Hizmet"
+                    miktar = 1.0
+                    birim_fiyat = 0.0
+                    tutar = 0.0
+                    kdv_orani = 20.0
+                    
+                    for child in line.iter():
+                        ctag = child.tag.split('}')[-1].lower()
+                        cval = child.text.strip() if child.text else ""
+                        
+                        if ctag in ["name", "itemname", "description"] and cval and mal_adi == "Tanýmsýz Mal / Hizmet":
+                            mal_adi = cval
+                        elif ctag in ["invoicedquantity", "quantity"]:
+                            try: miktar = float(cval)
+                            except: pass
+                        elif ctag in ["priceamount", "price"]:
+                            try: birim_fiyat = float(cval)
+                            except: pass
+                        elif ctag in ["lineextensionamount", "amount"]:
+                            try: tutar = float(cval)
+                            except: pass
+                        elif ctag in ["percent"] and cval in ["1", "8", "10", "18", "20"]:
+                            try: kdv_orani = float(cval)
+                            except: pass
+                    
+                    if birim_fiyat == 0.0 and miktar > 0 and tutar > 0:
+                        birim_fiyat = tutar / miktar
+                    elif tutar == 0.0 and miktar > 0 and birim_fiyat > 0:
+                        tutar = miktar * birim_fiyat
+
+                    tum_satirlar.append({
+                        "Fatura No": fatura_no,
+                        "Tarih": fatura_tarihi,
+                        "Firma Unvaný": firma_unvani,
+                        "Mal / Hizmet Açýklamasý": mal_adi,
+                        "Miktar": miktar,
+                        "Birim Fiyat (TL)": birim_fiyat,
+                        "Tutar (TL)": tutar,
+                        "KDV Oraný (%)": kdv_orani
+                    })
+        except Exception as e:
+            st.error(f"Dosya okuma hatasý ({uf.name}): {e}")
+            
+    return pd.DataFrame(tum_satirlar)
+
+# --- STREAMLIT ARAYÜZ ENTEGRASYONU ---
+def render_efatura_kalemleri_sekmesi():
+    st.subheader("?? E-Fatura Mal / Hizmet Kalemleri Detay Analizi")
+    st.markdown("E-Fatura XML dosyalarýnýzý yükleyerek faturadaki tüm ürün ve hizmet kalemlerini tek bir raporda listeleyebilir ve Excel olarak indirebilirsiniz.")
+    
+    efatura_kalem_files = st.file_uploader(
+        "E-Fatura XML Dosyalarýný Seçin", 
+        type=["xml"], 
+        accept_multiple_files=True,
+        key="efatura_kalem_uploader"
+    )
+    
+    if st.button("?? Faturalardaki Ürün/Hizmetleri Ayrýþtýr", type="primary", use_container_width=True):
+        if efatura_kalem_files:
+            with st.spinner("Faturalar taranýyor, mal ve hizmet kalemleri çýkartýlýyor..."):
+                df_kalemler = efatura_mal_iceriklerini_oku(efatura_kalem_files)
+                st.session_state["efatura_kalemler_df"] = df_kalemler
+                time.sleep(0.3)
+            st.success("Mal ve hizmet kalemleri baþarýyla listelendi kanka!")
+            st.rerun()
+        else:
+            st.warning("Lütfen en az bir E-Fatura XML dosyasý seçin kanka.")
+
+    if "efatura_kalemler_df" in st.session_state and not st.session_state["efatura_kalemler_df"].empty:
+        st.markdown("---")
+        st.markdown("### ?? Fatura Kalemleri Listesi")
+        
+        df_gosterim = st.session_state["efatura_kalemler_df"].copy()
+        for col in ["Birim Fiyat (TL)", "Tutar (TL)"]:
+            df_gosterim[col] = df_gosterim[col].apply(lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+            
+        st.dataframe(df_gosterim, use_container_width=True, hide_index=True)
+        
+        output_kalemler = io.BytesIO()
+        with pd.ExcelWriter(output_kalemler, engine='xlsxwriter') as writer:
+            st.session_state["efatura_kalemler_df"].to_excel(writer, sheet_name='Fatura_Kalemleri', index=False)
+        st.download_button(
+            label="?? Bu Kalemleri Excel Olarak Ýndir (.xlsx)", 
+            data=output_kalemler.getvalue(), 
+            file_name="E_Fatura_Mal_Hizmet_Kalemleri.xlsx", 
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", 
+            key="dl_efatura_kalemler"
+        )
