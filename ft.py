@@ -11,7 +11,26 @@ st.set_page_config(
     layout="wide"
 )
 
-# Başlık ve Karşılama
+# --- ŞİFRE KONTROL KISMI ---
+if "authenticated" not in st.session_state:
+    st.session_state["authenticated"] = False
+
+if not st.session_state["authenticated"]:
+    st.title("🔒 Giriş Paneli")
+    st.markdown("Lütfen devam etmek için sistem şifresini girin.")
+    
+    girilen_sifre = st.text_input("Şifre", type="password", key="login_pass")
+    
+    if st.button("Giriş Yap", type="primary"):
+        if girilen_sifre == "1903":
+            st.session_state["authenticated"] = True
+            st.success("Giriş başarılı kanka!")
+            st.rerun()
+        else:
+            st.error("Hatalı şifre kanka! (Şifre: 1903)")
+    st.stop()  # Şifre girilmediyse alt kısımların yüklenmesini engeller
+
+# --- ANA UYGULAMA (Şifre Doğrulandıktan Sonra Çalışır) ---
 st.title("🧾 E-Fatura Alış KDV Listesi Otomasyonu")
 st.markdown("Alış faturası XML dosyalarınızı yükleyin; sistem satıcı VKN, alıcı unvanı, mal içeriği, miktar ve KDV detaylarını resmi **İndirilecek KDV Listesi** formatında Excel versin.")
 st.markdown("---")
@@ -39,7 +58,7 @@ def efatura_mal_iceriklerini_oku(uploaded_files):
                 tag = elem.tag.split('}')[-1].lower()
                 text = elem.text.strip() if elem.text else ""
                 if tag in ["id", "faturano"] and fatura_no == "Bilinmiyor" and text:
-                    fatura_no = text  # Tam fatura no
+                    fatura_no = text
                 elif tag in ["issuedate", "tarih"] and not fatura_tarihi and text:
                     fatura_tarihi = text
 
@@ -63,7 +82,7 @@ def efatura_mal_iceriklerini_oku(uploaded_files):
             except:
                 kdv_donemi = "2023/05"
 
-            # 2. Satıcı ve Alıcı Unvan / VKN Bilgileri (Garantili Çekim)
+            # 2. Satıcı ve Alıcı Unvan / VKN Bilgileri
             for parent in root.iter():
                 ptag = parent.tag.split('}')[-1].lower()
                 if "accountingsupplierparty" in ptag: # Satıcı
@@ -72,7 +91,6 @@ def efatura_mal_iceriklerini_oku(uploaded_files):
                         cval = child.text.strip() if child.text else ""
                         if ctag in ["name", "partyname"] and satici_unvan == "Bilinmiyor" and cval:
                             satici_unvan = cval
-                        # VKN tespiti (PartyIdentification altındaki ID veya vkn/companyid)
                         elif ctag in ["id", "companyid", "vkn", "tckn"] and not satici_vkn and cval:
                             if len(cval) in [10, 11] and cval.isdigit():
                                 satici_vkn = cval
@@ -189,14 +207,14 @@ uploaded_xmls = st.file_uploader(
 col_islem, col_temizle = st.columns([3, 1])
 
 with col_islem:
-    islem_basildi = st.button("🚀 Faturaları İşle và İndirilecek KDV Listesi Oluştur", type="primary", use_container_width=True)
+    islem_basildi = st.button("🚀 Faturaları İşle ve İndirilecek KDV Listesi Oluştur", type="primary", use_container_width=True)
 
 with col_temizle:
-    temizle_basildi = st.button("🗑️ Faturaları Temizle / Sıfırla", type="secondary", use_container_width=True)
+    sil_basildi = st.button("🗑️ Tüm Faturaları Sil", type="secondary", use_container_width=True)
 
-if temizle_basildi:
+if sil_basildi:
     st.session_state["ft_efatura_kalemler_df"] = pd.DataFrame()
-    st.success("Tüm fatura verileri temizlendi kanka!")
+    st.success("Tüm faturalar silindi kanka!")
     st.rerun()
 
 if islem_basildi:
@@ -227,17 +245,15 @@ if not st.session_state["ft_efatura_kalemler_df"].empty:
         workbook = writer.book
         worksheet = writer.sheets['İndirilecek KDV Listesi']
         
-        # Üst başlık (Header) için şık tasarım formatı
         header_format = workbook.add_format({
             'bold': True,
             'font_color': 'white',
-            'bg_color': '#1F4E78',  # Koyu Mavi Profesyonel Kurumsal Renk
+            'bg_color': '#1F4E78',
             'align': 'center',
             'valign': 'middle',
             'border': 1
         })
         
-        # Başlıkları formatla ve sütun genişliklerini otomatik ayarla
         for col_num, value in enumerate(st.session_state["ft_efatura_kalemler_df"].columns.values):
             worksheet.write(0, col_num, value, header_format)
             worksheet.set_column(col_num, col_num, max(len(str(value)) + 3, 16))
